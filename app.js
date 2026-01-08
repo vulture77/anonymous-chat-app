@@ -4,8 +4,20 @@ import { Send, Users, Clock, CreditCard, AlertCircle, CheckCircle } from 'lucide
 const AnonymousChatApp = () => {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [userId] = useState(() => 'user_' + Math.random().toString(36).substr(2, 9));
-  const [username] = useState(() => 'Anonymous' + Math.floor(Math.random() * 9999));
+  const [userId] = useState(() => {
+    const stored = localStorage.getItem('userId');
+    if (stored) return stored;
+    const newId = 'user_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('userId', newId);
+    return newId;
+  });
+  const [username] = useState(() => {
+    const stored = localStorage.getItem('username');
+    if (stored) return stored;
+    const newName = 'Anonymous' + Math.floor(Math.random() * 9999);
+    localStorage.setItem('username', newName);
+    return newName;
+  });
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [hasAccess, setHasAccess] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -15,11 +27,11 @@ const AnonymousChatApp = () => {
 
   // Initialize timer on first load
   useEffect(() => {
-    const initTimer = async () => {
+    const initTimer = () => {
       try {
-        const stored = await window.storage.get('chatAccess_' + userId);
+        const stored = localStorage.getItem('chatAccess_' + userId);
         if (stored) {
-          const data = JSON.parse(stored.value);
+          const data = JSON.parse(stored);
           const now = Date.now();
           if (now < data.expiresAt) {
             setTimeRemaining(Math.floor((data.expiresAt - now) / 1000));
@@ -31,11 +43,12 @@ const AnonymousChatApp = () => {
         } else {
           // First time user - 30 minutes free
           const expiresAt = Date.now() + (30 * 60 * 1000);
-          await window.storage.set('chatAccess_' + userId, JSON.stringify({ expiresAt }));
+          localStorage.setItem('chatAccess_' + userId, JSON.stringify({ expiresAt }));
           setTimeRemaining(30 * 60);
           setHasAccess(true);
         }
       } catch (error) {
+        console.error('Timer init error:', error);
         // If storage fails, give 30 min access
         setTimeRemaining(30 * 60);
         setHasAccess(true);
@@ -63,33 +76,22 @@ const AnonymousChatApp = () => {
     return () => clearInterval(timer);
   }, [timeRemaining]);
 
-  // Load messages from storage
+  // Load messages from localStorage
   useEffect(() => {
-    const loadMessages = async () => {
+    const loadMessages = () => {
       try {
-        const keys = await window.storage.list('msg_', true);
-        if (keys && keys.keys) {
-          const msgs = [];
-          for (const key of keys.keys) {
-            try {
-              const result = await window.storage.get(key, true);
-              if (result) {
-                msgs.push(JSON.parse(result.value));
-              }
-            } catch (e) {
-              console.log('Error loading message:', e);
-            }
-          }
-          msgs.sort((a, b) => a.timestamp - b.timestamp);
+        const stored = localStorage.getItem('sharedMessages');
+        if (stored) {
+          const msgs = JSON.parse(stored);
           setMessages(msgs.slice(-50)); // Keep last 50 messages
         }
       } catch (error) {
-        console.log('Could not load messages:', error);
+        console.error('Error loading messages:', error);
       }
     };
 
     loadMessages();
-    const interval = setInterval(loadMessages, 3000);
+    const interval = setInterval(loadMessages, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -104,7 +106,7 @@ const AnonymousChatApp = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSendMessage = async () => {
+  const handleSendMessage = () => {
     if (!inputMessage.trim() || !hasAccess) return;
 
     const newMessage = {
@@ -116,15 +118,18 @@ const AnonymousChatApp = () => {
     };
 
     try {
-      await window.storage.set('msg_' + newMessage.id, JSON.stringify(newMessage), true);
-      setMessages(prev => [...prev, newMessage]);
+      const stored = localStorage.getItem('sharedMessages');
+      const allMessages = stored ? JSON.parse(stored) : [];
+      allMessages.push(newMessage);
+      localStorage.setItem('sharedMessages', JSON.stringify(allMessages.slice(-50)));
+      setMessages(allMessages.slice(-50));
       setInputMessage('');
     } catch (error) {
-      console.log('Error sending message:', error);
+      console.error('Error sending message:', error);
     }
   };
 
-  const handlePayment = async () => {
+  const handlePayment = () => {
     setPaymentProcessing(true);
     
     const options = {
@@ -133,12 +138,12 @@ const AnonymousChatApp = () => {
       currency: 'INR',
       name: 'Anonymous Chat',
       description: '1 Hour Access',
-      handler: async function(response) {
+      handler: function(response) {
         // Payment successful
         console.log('Payment successful:', response.razorpay_payment_id);
         const expiresAt = Date.now() + (60 * 60 * 1000);
         try {
-          await window.storage.set('chatAccess_' + userId, JSON.stringify({ expiresAt }));
+          localStorage.setItem('chatAccess_' + userId, JSON.stringify({ expiresAt }));
           setTimeRemaining(60 * 60);
           setHasAccess(true);
           setPaymentSuccess(true);
@@ -148,7 +153,7 @@ const AnonymousChatApp = () => {
             setPaymentProcessing(false);
           }, 2000);
         } catch (error) {
-          console.log('Error updating access:', error);
+          console.error('Error updating access:', error);
           setPaymentProcessing(false);
         }
       },
@@ -166,12 +171,17 @@ const AnonymousChatApp = () => {
     };
 
     try {
+      if (typeof window.Razorpay === 'undefined') {
+        alert('Payment gateway is loading. Please try again in a moment.');
+        setPaymentProcessing(false);
+        return;
+      }
       const rzp = new window.Razorpay(options);
       rzp.open();
       setPaymentProcessing(false);
     } catch (error) {
       console.error('Razorpay error:', error);
-      alert('Payment gateway not loaded. Please refresh the page.');
+      alert('Payment gateway not available. Please refresh the page.');
       setPaymentProcessing(false);
     }
   };
@@ -211,6 +221,12 @@ const AnonymousChatApp = () => {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-6 max-w-7xl w-full mx-auto">
         <div className="space-y-3 sm:space-y-4">
+          {messages.length === 0 && (
+            <div className="text-center text-white text-opacity-70 py-8">
+              <p className="text-lg mb-2">👋 Welcome to Anonymous Chat!</p>
+              <p className="text-sm">Send a message to start chatting</p>
+            </div>
+          )}
           {messages.map((msg) => (
             <div
               key={msg.id}
