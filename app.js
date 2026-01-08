@@ -127,16 +127,16 @@ const AnonymousChatApp = () => {
   const handlePayment = async () => {
     setPaymentProcessing(true);
     
-    // Simulate Razorpay payment integration
-    // In production, you would integrate with Razorpay SDK here
     const options = {
+      key: 'rzp_test_S1ENnDVh4wC7Qp', // Replace with your actual Razorpay Key ID
       amount: 100, // ₹1 = 100 paise
       currency: 'INR',
       name: 'Anonymous Chat',
       description: '1 Hour Access',
       handler: async function(response) {
         // Payment successful
-        const expiresAt = Date.now() + (60 * 60 * 1000); // 1 hour
+        console.log('Payment successful:', response.razorpay_payment_id);
+        const expiresAt = Date.now() + (60 * 60 * 1000);
         try {
           await window.storage.set('chatAccess_' + userId, JSON.stringify({ expiresAt }));
           setTimeRemaining(60 * 60);
@@ -149,27 +149,31 @@ const AnonymousChatApp = () => {
           }, 2000);
         } catch (error) {
           console.log('Error updating access:', error);
+          setPaymentProcessing(false);
         }
+      },
+      modal: {
+        ondismiss: function() {
+          setPaymentProcessing(false);
+        }
+      },
+      prefill: {
+        name: username,
+      },
+      theme: {
+        color: '#9333ea'
       }
     };
 
-    // For demo purposes, simulate successful payment after 2 seconds
-    setTimeout(async () => {
-      const expiresAt = Date.now() + (60 * 60 * 1000);
-      try {
-        await window.storage.set('chatAccess_' + userId, JSON.stringify({ expiresAt }));
-        setTimeRemaining(60 * 60);
-        setHasAccess(true);
-        setPaymentSuccess(true);
-        setTimeout(() => {
-          setShowPaymentModal(false);
-          setPaymentSuccess(false);
-          setPaymentProcessing(false);
-        }, 2000);
-      } catch (error) {
-        setPaymentProcessing(false);
-      }
-    }, 2000);
+    try {
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+      setPaymentProcessing(false);
+    } catch (error) {
+      console.error('Razorpay error:', error);
+      alert('Payment gateway not loaded. Please refresh the page.');
+      setPaymentProcessing(false);
+    }
   };
 
   return (
@@ -322,7 +326,7 @@ const AnonymousChatApp = () => {
                 </div>
 
                 <p className="text-xs text-gray-500 mt-4 text-center">
-                  Demo mode: Payment will be simulated. In production, integrate with Razorpay API.
+                  Remember to replace 'YOUR_RAZORPAY_KEY_ID' with your actual Razorpay key.
                 </p>
               </>
             )}
